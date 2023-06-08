@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">EspBleOTA</string>
+    <string name="app_version">Version: %s(%d)</string>
+    <string name="app_about">About</string>
+
+    <string name="bluetooth_disabled">Bluetooth is disabled</string>
+    <string name="location_disabled">Location(GPS) is disabled</string>
+
+    <string name="ble_ota">BLE OTA</string>
+    <string name="ble_ota_scan">BLE OTA Scan</string>
+    <string name="ble_ota_scan_failed">Scan failed: %d</string>
+    <string name="ble_ota_select_bin">Select Bin</string>
+    <string name="ble_ota_no_bin_found">Not found any bins</string>
+    <string name="ble_ota_start_ota">Start OTA</string>
+</resources>
