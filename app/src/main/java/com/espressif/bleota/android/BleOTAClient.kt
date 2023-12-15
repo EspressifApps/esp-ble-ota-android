@@ -1,7 +1,9 @@
 package com.espressif.bleota.android
 
+import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import com.espressif.bleota.android.message.BleOTAMessage
@@ -13,10 +15,11 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.ArrayList
 import kotlin.concurrent.thread
 
+@SuppressLint("MissingPermission")
 class BleOTAClient(
     private val context: Context,
     private val device: BluetoothDevice,
-    private val bin: File
+    private val bin: ByteArray
 ) : Closeable {
     companion object {
         private const val TAG = "BleOTAClient"
@@ -93,7 +96,7 @@ class BleOTAClient(
         packets.clear()
 
         val sectors = ArrayList<ByteArray>()
-        FileInputStream(bin).use {
+        ByteArrayInputStream(bin).use {
             val buf = ByteArray(4096)
             while (true) {
                 val read = it.read(buf)
@@ -195,12 +198,12 @@ class BleOTAClient(
 
     private fun postCommandStart() {
         Log.i(TAG, "postCommandStart")
-        val binSize = bin.length()
+        val binSize = bin.size
         val payload = byteArrayOf(
-            (binSize and 0xffL).toByte(),
-            (binSize shr 8 and 0xffL).toByte(),
-            (binSize shr 16 and 0xffL).toByte(),
-            (binSize shr 24 and 0xffL).toByte(),
+            (binSize and 0xff).toByte(),
+            (binSize shr 8 and 0xff).toByte(),
+            (binSize shr 16 and 0xff).toByte(),
+            (binSize shr 24 and 0xff).toByte(),
         )
         val packet = genCommandPacket(COMMAND_ID_START, payload)
         commandChar?.value = packet

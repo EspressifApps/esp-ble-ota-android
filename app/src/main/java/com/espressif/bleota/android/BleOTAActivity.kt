@@ -4,6 +4,7 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.le.ScanResult
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -32,7 +33,7 @@ class BleOTAActivity : AppCompatActivity() {
     }
 
     private lateinit var mScanResult: ScanResult
-    private lateinit var mBin: File
+    private lateinit var mBinUri: Uri
 
     private var mOtaClient: BleOTAClient? = null
 
@@ -45,7 +46,7 @@ class BleOTAActivity : AppCompatActivity() {
         setContentView(mBinding.root)
 
         mScanResult = intent.getParcelableExtra(BleOTAConstants.KEY_SCAN_RESULT)!!
-        mBin = File(intent.getStringExtra(BleOTAConstants.KEY_BIN_PATH)!!)
+        mBinUri = intent.getParcelableExtra(BleOTAConstants.KEY_BIN_URI)!!
 
         mBinding.recyclerView.adapter = StatusAdapter()
 
@@ -68,7 +69,10 @@ class BleOTAActivity : AppCompatActivity() {
         close()
         mScope.launch(Dispatchers.IO) {
             Log.d(TAG, "connect: start")
-            mOtaClient = BleOTAClient(applicationContext, mScanResult.device, mBin)
+            val binData = contentResolver.openInputStream(mBinUri)?.use {
+                it.readBytes()
+            }!!
+            mOtaClient = BleOTAClient(applicationContext, mScanResult.device, binData)
             mOtaClient?.start(GattCallback())
         }
     }

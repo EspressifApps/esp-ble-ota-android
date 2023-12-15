@@ -20,8 +20,8 @@ fun Context.isPermissionDenied(permission: String): Boolean {
     return ActivityCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_DENIED
 }
 
-fun Activity.requestPermission(permission: String, requestCode: Int) {
-    ActivityCompat.requestPermissions(this, arrayOf(permission), requestCode)
+fun Activity.requestPermission(requestCode: Int, vararg permission: String) {
+    ActivityCompat.requestPermissions(this, permission, requestCode)
 }
 
 fun Context.isLocationEnabled(): Boolean {

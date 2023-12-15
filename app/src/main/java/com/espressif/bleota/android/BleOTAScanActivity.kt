@@ -1,12 +1,14 @@
 package com.espressif.bleota.android
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.*
 import android.util.Log
 import android.view.Menu
@@ -15,14 +17,18 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.RecyclerView
 import com.espressif.bleota.android.databinding.BleOtaScanActivityBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
 
+@SuppressLint("MissingPermission")
 class BleOTAScanActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "BleOTAScanActivity"
@@ -31,6 +37,7 @@ class BleOTAScanActivity : AppCompatActivity() {
         private val SERVICE_UUID = ParcelUuid(bleUUID("8018"))
 
         private const val REQUEST_PERMISSION = 1
+        private const val REQUEST_SELECT_FOLD = 2
     }
 
     private val mBinding by lazy(LazyThreadSafetyMode.NONE) {
@@ -40,6 +47,9 @@ class BleOTAScanActivity : AppCompatActivity() {
     private val mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
     private val mScanCallback = ScanCallback()
     private val mScanResults = LinkedHashMap<String, ScanResult>()
+
+    private var mSelectedScanResult: ScanResult? = null
+    private lateinit var mSelectFoldLauncher: ActivityResultLauncher<Intent>
 
     private val mHandler = Handler(Looper.getMainLooper())
 
@@ -55,13 +65,16 @@ class BleOTAScanActivity : AppCompatActivity() {
         mBinding.recyclerView.adapter = DeviceAdapter()
         mBinding.recyclerView.addItemDecoration(DividerItemDecoration(this, RecyclerView.VERTICAL))
 
+        registerLaunchers()
+
         mHandler.post { refresh() }
     }
 
     override fun onDestroy() {
         super.onDestroy()
 
-        mBluetoothAdapter.bluetoothLeScanner?.stopScan(mScanCallback)
+        unregisterLaunchers()
+        stopScan()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -91,18 +104,37 @@ class BleOTAScanActivity : AppCompatActivity() {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
-        if (requestCode == REQUEST_PERMISSION) {
-            if (permissions[0] == Manifest.permission.ACCESS_FINE_LOCATION) {
-                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        when (requestCode) {
+            REQUEST_PERMISSION -> {
+                if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
                     if (!mBinding.refreshLayout.isRefreshing) {
                         refresh()
                     }
                 }
             }
-            return
+            else -> {
+                super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+            }
         }
 
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
+    private fun registerLaunchers() {
+        mSelectFoldLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) {
+            val scanResult = mSelectedScanResult!!
+            mSelectedScanResult = null
+
+            val uri = it.data?.data
+            if (uri != null) {
+                gotoOta(scanResult, uri)
+            }
+        }
+    }
+
+    private fun unregisterLaunchers() {
+        mSelectFoldLauncher.unregister()
     }
 
     private fun refresh() {
@@ -112,11 +144,25 @@ class BleOTAScanActivity : AppCompatActivity() {
             mBinding.refreshLayout.isRefreshing = false
             return
         }
+
+        val requiredPermissions = mutableListOf<String>()
         if (isPermissionDenied(Manifest.permission.ACCESS_FINE_LOCATION)) {
-            requestPermission(Manifest.permission.ACCESS_FINE_LOCATION, REQUEST_PERMISSION)
+            requiredPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (isPermissionDenied(Manifest.permission.BLUETOOTH_SCAN)) {
+                requiredPermissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            }
+            if (isPermissionDenied(Manifest.permission.BLUETOOTH_CONNECT)) {
+                requiredPermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+        }
+        if (requiredPermissions.isNotEmpty()) {
+            requestPermission(REQUEST_PERMISSION, *requiredPermissions.toTypedArray())
             mBinding.refreshLayout.isRefreshing = false
             return
         }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && isLocationDisabled()) {
             Toast.makeText(this, R.string.location_disabled, Toast.LENGTH_SHORT).show()
             mBinding.refreshLayout.isRefreshing = false
@@ -141,11 +187,64 @@ class BleOTAScanActivity : AppCompatActivity() {
         }, 2500)
     }
 
-    private fun gotoOta(scanResult: ScanResult, binPath: String) {
-        val intent = Intent(this, BleOTAActivity::class.java)
-            .putExtra(BleOTAConstants.KEY_SCAN_RESULT, scanResult)
-            .putExtra(BleOTAConstants.KEY_BIN_PATH, binPath)
+    private fun stopScan() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.BLUETOOTH_SCAN
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        mBluetoothAdapter.bluetoothLeScanner?.stopScan(mScanCallback)
+    }
+
+    private fun gotoOta(scanResult: ScanResult, binUri: Uri) {
+        val intent = Intent(this, BleOTAActivity::class.java).apply {
+            putExtra(BleOTAConstants.KEY_SCAN_RESULT, scanResult)
+            putExtra(BleOTAConstants.KEY_BIN_URI, binUri)
+        }
         startActivity(intent)
+    }
+
+    private fun selectBinFromFold(scanResult: ScanResult) {
+        mSelectedScanResult = scanResult
+        val intent = Intent.createChooser(
+            Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = "*/*"
+                addCategory(Intent.CATEGORY_OPENABLE)
+            },
+            getString(R.string.ble_ota_select_bin)
+        )
+        mSelectFoldLauncher.launch(intent)
+    }
+
+    fun showFileDialog(scanResult: ScanResult) {
+        val dir = File(applicationContext.getExternalFilesDir(null), "BLE-OTA")
+        Log.d(TAG, "showFileDialog: dir path = ${dir}")
+        val files = dir
+            .listFiles()
+            ?.filter { it.isFile }
+            ?: emptyList()
+        MaterialAlertDialogBuilder(this@BleOTAScanActivity).apply {
+            setTitle(R.string.ble_ota_select_bin)
+            setNegativeButton(android.R.string.cancel, null)
+            if (files.isEmpty()) {
+                setMessage(R.string.ble_ota_no_bin_found)
+            } else {
+                setItems(files.map { it.name }.toTypedArray()) { dialog, which ->
+                    val uri = Uri.fromFile(files[which])
+                    gotoOta(scanResult, uri)
+                    dialog.dismiss()
+                }
+            }
+            setPositiveButton(R.string.ble_ota_select_fold) { _, _ ->
+                selectBinFromFold(scanResult)
+            }
+        }.show().apply {
+            setCanceledOnTouchOutside(false)
+        }
     }
 
     private inner class DeviceHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -155,31 +254,7 @@ class BleOTAScanActivity : AppCompatActivity() {
 
         init {
             itemView.setOnClickListener {
-                showFileDialog()
-            }
-        }
-
-        fun showFileDialog() {
-            val dir = File(applicationContext.getExternalFilesDir(null), "BLE-OTA")
-            Log.d(TAG, "showFileDialog: dir path = ${dir}")
-            val files = dir 
-                .listFiles()
-                ?.filter { it.isFile }
-                ?: emptyList()
-            MaterialAlertDialogBuilder(this@BleOTAScanActivity).apply {
-                setTitle(R.string.ble_ota_select_bin)
-                setNegativeButton(android.R.string.cancel, null)
-                if (files.isEmpty()) {
-                    setMessage(R.string.ble_ota_no_bin_found)
-                } else {
-                    setItems(files.map { it.name }.toTypedArray()) { dialog, which ->
-                        val path = files[which].path
-                        gotoOta(scanResult, path)
-                        dialog.dismiss()
-                    }
-                }
-            }.show().apply {
-                setCanceledOnTouchOutside(false)
+                showFileDialog(scanResult)
             }
         }
     }

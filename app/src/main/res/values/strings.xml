@@ -9,6 +9,7 @@
     <string name="ble_ota">BLE OTA</string>
     <string name="ble_ota_scan">BLE OTA Scan</string>
     <string name="ble_ota_scan_failed">Scan failed: %d</string>
+    <string name="ble_ota_select_fold">Select Fold</string>
     <string name="ble_ota_select_bin">Select Bin</string>
     <string name="ble_ota_no_bin_found">Not found any bins</string>
     <string name="ble_ota_start_ota">Start OTA</string>
