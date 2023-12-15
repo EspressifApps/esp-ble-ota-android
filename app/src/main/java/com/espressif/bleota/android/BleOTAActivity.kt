@@ -1,5 +1,6 @@
 package com.espressif.bleota.android
 
+import android.app.AlertDialog
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
@@ -21,7 +22,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import java.io.File
 
 class BleOTAActivity : AppCompatActivity() {
     companion object {

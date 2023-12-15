@@ -37,7 +37,6 @@ class BleOTAScanActivity : AppCompatActivity() {
         private val SERVICE_UUID = ParcelUuid(bleUUID("8018"))
 
         private const val REQUEST_PERMISSION = 1
-        private const val REQUEST_SELECT_FOLD = 2
     }
 
     private val mBinding by lazy(LazyThreadSafetyMode.NONE) {
@@ -66,6 +65,11 @@ class BleOTAScanActivity : AppCompatActivity() {
         mBinding.recyclerView.addItemDecoration(DividerItemDecoration(this, RecyclerView.VERTICAL))
 
         registerLaunchers()
+
+        val binDir = getDefaultBinDir()
+        if (!binDir.exists()) {
+            binDir.mkdirs()
+        }
 
         mHandler.post { refresh() }
     }
@@ -220,8 +224,12 @@ class BleOTAScanActivity : AppCompatActivity() {
         mSelectFoldLauncher.launch(intent)
     }
 
+    private fun getDefaultBinDir(): File {
+        return File(applicationContext.getExternalFilesDir(null), "BLE-OTA")
+    }
+
     fun showFileDialog(scanResult: ScanResult) {
-        val dir = File(applicationContext.getExternalFilesDir(null), "BLE-OTA")
+        val dir = getDefaultBinDir()
         Log.d(TAG, "showFileDialog: dir path = ${dir}")
         val files = dir
             .listFiles()
