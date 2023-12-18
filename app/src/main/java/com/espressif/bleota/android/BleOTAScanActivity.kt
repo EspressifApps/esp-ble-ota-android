@@ -22,10 +22,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.RecyclerView
 import com.espressif.bleota.android.databinding.BleOtaScanActivityBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
 
 @SuppressLint("MissingPermission")
@@ -66,9 +69,11 @@ class BleOTAScanActivity : AppCompatActivity() {
 
         registerLaunchers()
 
-        val binDir = getDefaultBinDir()
-        if (!binDir.exists()) {
-            binDir.mkdirs()
+        lifecycleScope.launch(Dispatchers.IO) {
+            val binDir = getDefaultBinDir()
+            if (!binDir.exists()) {
+                binDir.mkdirs()
+            }
         }
 
         mHandler.post { refresh() }

@@ -1,6 +1,5 @@
 package com.espressif.bleota.android
 
-import android.app.AlertDialog
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
@@ -12,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import com.espressif.bleota.android.databinding.BleOtaActivityBinding
 import com.espressif.bleota.android.message.BleOTAMessage
@@ -19,7 +19,6 @@ import com.espressif.bleota.android.message.CommandAckMessage
 import com.espressif.bleota.android.message.EndCommandAckMessage
 import com.espressif.bleota.android.message.StartCommandAckMessage
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
@@ -38,8 +37,6 @@ class BleOTAActivity : AppCompatActivity() {
     private var mOtaClient: BleOTAClient? = null
 
     private val mStatusList = ArrayList<String>()
-
-    private val mScope = MainScope()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,13 +58,12 @@ class BleOTAActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
 
-        mScope.cancel()
         close()
     }
 
     private fun connect() {
         close()
-        mScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch(Dispatchers.IO) {
             Log.d(TAG, "connect: start")
             val binData = contentResolver.openInputStream(mBinUri)?.use {
                 it.readBytes()
