@@ -6,8 +6,11 @@ plugins {
 android {
     compileSdk 34
 
+    def appId = "com.espressif.bleota.android"
+    namespace "$appId"
+
     defaultConfig {
-        applicationId "com.espressif.bleota.android"
+        applicationId "$appId"
         minSdk 22
         targetSdk 34
         versionCode 11
@@ -43,7 +46,6 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
-    namespace 'com.espressif.bleota.android'
 }
 
 dependencies {
