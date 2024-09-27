@@ -66,7 +66,7 @@ class BleOTAClient(
     private val sectorAckIndex = AtomicInteger(0)
     private val sectorAckMark = ByteArray(0)
 
-    fun start(callback: GattCallback) {
+    fun connect(callback: GattCallback) {
         Log.i(TAG, "start OTA")
         stop()
 
@@ -89,6 +89,10 @@ class BleOTAClient(
 
     override fun close() {
         stop()
+    }
+
+    fun ota() {
+        notifyNextDescWrite()
     }
 
     private fun initPackets() {
@@ -400,10 +404,6 @@ class BleOTAClient(
                 it.progressChar = progressChar
                 it.commandChar = commandChar
                 it.customerChar = customerChar
-            }?.apply {
-                if (service != null && recvFwChar != null && progressChar != null && commandChar != null && customerChar != null) {
-                    notifyNextDescWrite()
-                }
             }
         }
 

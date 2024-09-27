@@ -13,4 +13,5 @@
     <string name="ble_ota_select_bin">Select Bin</string>
     <string name="ble_ota_no_bin_found">Not found any bins</string>
     <string name="ble_ota_start_ota">Start OTA</string>
+    <string name="ble_ota_connect">Connect</string>
 </resources>

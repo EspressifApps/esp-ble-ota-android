@@ -19,7 +19,6 @@ import com.espressif.bleota.android.message.CommandAckMessage
 import com.espressif.bleota.android.message.EndCommandAckMessage
 import com.espressif.bleota.android.message.StartCommandAckMessage
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class BleOTAActivity : AppCompatActivity() {
@@ -47,9 +46,14 @@ class BleOTAActivity : AppCompatActivity() {
 
         mBinding.recyclerView.adapter = StatusAdapter()
 
-        mBinding.otaBtn.setOnClickListener {
-            it.isEnabled = false
+        mBinding.connectBtn.setOnClickListener {
+            mBinding.connectBtn.isEnabled = false
+            mBinding.otaBtn.isEnabled = false
             connect()
+        }
+        mBinding.otaBtn.setOnClickListener {
+            mBinding.otaBtn.isEnabled = false
+            ota()
         }
 
         connect()
@@ -69,7 +73,7 @@ class BleOTAActivity : AppCompatActivity() {
                 it.readBytes()
             }!!
             mOtaClient = BleOTAClient(applicationContext, mScanResult.device, binData)
-            mOtaClient?.start(GattCallback())
+            mOtaClient?.connect(GattCallback())
         }
     }
 
@@ -77,6 +81,10 @@ class BleOTAActivity : AppCompatActivity() {
         Log.d(TAG, "close")
         mOtaClient?.close()
         mOtaClient = null
+    }
+
+    private fun ota() {
+        mOtaClient?.ota()
     }
 
     private fun updateStatus(message: String, connected: Boolean) {

@@ -6,13 +6,22 @@
     android:padding="16dp">
 
     <com.google.android.material.button.MaterialButton
+        android:id="@+id/connectBtn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:enabled="false"
+        android:text="@string/ble_ota_connect"
+        android:textAllCaps="false"
+        app:layout_constraintBottom_toBottomOf="parent" />
+
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/otaBtn"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:enabled="false"
         android:text="@string/ble_ota_start_ota"
         android:textAllCaps="false"
-        android:enabled="false"
-        app:layout_constraintBottom_toBottomOf="parent" />
+        app:layout_constraintBottom_toTopOf="@id/connectBtn" />
 
     <ProgressBar
         android:id="@+id/progressBar"
