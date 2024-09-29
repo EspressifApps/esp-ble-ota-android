@@ -93,11 +93,11 @@ class BleOTAActivity : AppCompatActivity() {
             mBinding.recyclerView.scrollToPosition(mStatusList.lastIndex)
             if (connected) {
                 mBinding.progressBar.visible()
-                mBinding.otaBtn.isEnabled = false
+                mBinding.otaBtn.isEnabled = true
             } else {
                 close()
                 mBinding.progressBar.gone()
-                mBinding.otaBtn.isEnabled = true
+                mBinding.otaBtn.isEnabled = false
             }
         }
     }
