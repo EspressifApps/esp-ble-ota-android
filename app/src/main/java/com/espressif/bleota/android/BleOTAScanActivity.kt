@@ -3,6 +3,7 @@ package com.espressif.bleota.android
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -46,7 +47,7 @@ class BleOTAScanActivity : AppCompatActivity() {
         BleOtaScanActivityBinding.inflate(layoutInflater)
     }
 
-    private val mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+    private lateinit var mBluetoothAdapter: BluetoothAdapter
     private val mScanCallback = ScanCallback()
     private val mScanResults = LinkedHashMap<String, ScanResult>()
 
@@ -58,6 +59,8 @@ class BleOTAScanActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(mBinding.root)
+
+        mBluetoothAdapter = getSystemService(BluetoothManager::class.java).adapter
 
         mBinding.refreshLayout.setColorSchemeResources(R.color.teal_200)
         mBinding.refreshLayout.setOnRefreshListener {

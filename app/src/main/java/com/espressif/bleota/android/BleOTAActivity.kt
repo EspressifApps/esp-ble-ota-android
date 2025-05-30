@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.le.ScanResult
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -41,8 +42,13 @@ class BleOTAActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(mBinding.root)
 
-        mScanResult = intent.getParcelableExtra(BleOTAConstants.KEY_SCAN_RESULT)!!
-        mBinUri = intent.getParcelableExtra(BleOTAConstants.KEY_BIN_URI)!!
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            mScanResult = intent.getParcelableExtra(BleOTAConstants.KEY_SCAN_RESULT, ScanResult::class.java)!!
+            mBinUri = intent.getParcelableExtra(BleOTAConstants.KEY_BIN_URI, Uri::class.java)!!
+        } else {
+            mScanResult = intent.getParcelableExtra(BleOTAConstants.KEY_SCAN_RESULT)!!
+            mBinUri = intent.getParcelableExtra(BleOTAConstants.KEY_BIN_URI)!!
+        }
 
         mBinding.recyclerView.adapter = StatusAdapter()
 
