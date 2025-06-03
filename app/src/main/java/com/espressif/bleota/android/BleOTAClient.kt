@@ -8,7 +8,6 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import android.content.Context
-import android.os.Build
 import android.util.Log
 import com.espressif.bleota.android.message.BleOTAMessage
 import com.espressif.bleota.android.message.EndCommandAckMessage
@@ -42,7 +41,7 @@ class BleOTAClient(
         private const val BIN_ACK_SECTOR_INDEX_ERROR = 0x0002
         private const val BIN_ACK_PAYLOAD_LENGTH_ERROR = 0x0003
 
-        private const val MTU_SIZE = 517
+        private const val MTU_SIZE = 500
         private const val MTU_STATUS_FAILED = 20000
         private const val EXPECT_PACKET_SIZE = 463
 
@@ -77,11 +76,7 @@ class BleOTAClient(
 
         this.callback = callback
         callback.client = this
-        gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
-        } else {
-            device.connectGatt(context, false, callback)
-        }
+        gatt = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
     }
 
     fun stop() {

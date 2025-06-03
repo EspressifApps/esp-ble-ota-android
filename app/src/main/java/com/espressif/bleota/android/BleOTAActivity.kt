@@ -93,17 +93,20 @@ class BleOTAActivity : AppCompatActivity() {
         mOtaClient?.ota()
     }
 
-    private fun updateStatus(message: String, connected: Boolean) {
+    private fun updateStatus(message: String, connected: Boolean, showProgress: Boolean = connected) {
         runOnUiThread {
             mStatusList.add(message)
             mBinding.recyclerView.scrollToPosition(mStatusList.lastIndex)
             if (connected) {
-                mBinding.progressBar.visible()
                 mBinding.otaBtn.isEnabled = true
             } else {
                 close()
-                mBinding.progressBar.gone()
                 mBinding.otaBtn.isEnabled = false
+            }
+            if (showProgress) {
+                mBinding.progressBar.visible()
+            } else {
+                mBinding.progressBar.gone()
             }
         }
     }
@@ -183,7 +186,7 @@ class BleOTAActivity : AppCompatActivity() {
                 return
             }
 
-            updateStatus("Discover service and char completed", true)
+            updateStatus("Discover service and char completed", true, false)
         }
 
         override fun onDescriptorWrite(
