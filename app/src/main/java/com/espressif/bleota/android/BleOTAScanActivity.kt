@@ -27,6 +27,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.RecyclerView
 import com.espressif.bleota.android.databinding.BleOtaScanActivityBinding
+import com.espressif.bleota.android.databinding.BleOtaScanItemBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -190,6 +191,7 @@ class BleOTAScanActivity : AppCompatActivity() {
         )
         val scanSettings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setLegacy(false)
             .build()
         mBluetoothAdapter.bluetoothLeScanner.startScan(null, scanSettings, mScanCallback)
         mHandler.postDelayed({
@@ -263,13 +265,11 @@ class BleOTAScanActivity : AppCompatActivity() {
         }
     }
 
-    private inner class DeviceHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val text1: TextView = itemView.findViewById(android.R.id.text1)
-        val text2: TextView = itemView.findViewById(android.R.id.text2)
+    private inner class DeviceHolder(val binding: BleOtaScanItemBinding) : RecyclerView.ViewHolder(binding.root) {
         lateinit var scanResult: ScanResult
 
         init {
-            itemView.setOnClickListener {
+            binding.root.setOnClickListener {
                 showFileDialog(scanResult)
             }
         }
@@ -277,16 +277,15 @@ class BleOTAScanActivity : AppCompatActivity() {
 
     private inner class DeviceAdapter : RecyclerView.Adapter<DeviceHolder>() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DeviceHolder {
-            val itemView =
-                layoutInflater.inflate(android.R.layout.simple_list_item_2, parent, false)
-            return DeviceHolder(itemView)
+            val binding = BleOtaScanItemBinding.inflate(layoutInflater, parent, false)
+            return DeviceHolder(binding)
         }
 
         override fun onBindViewHolder(holder: DeviceHolder, position: Int) {
             val scanResult = mScanResults.getByIndex(position).value
             holder.scanResult = scanResult
-            holder.text1.text = scanResult.device.name
-            holder.text2.text = getDeviceDesc(scanResult)
+            holder.binding.deviceName.text = scanResult.device.name
+            holder.binding.deviceDesc.text = getDeviceDesc(scanResult)
         }
 
         private fun getDeviceDesc(scanResult: ScanResult): String {
@@ -305,10 +304,12 @@ class BleOTAScanActivity : AppCompatActivity() {
                 version = versionValue.toString()
             }
 
-            return "Address: ${scanResult.device.address}\n" +
-                    "Product: $productId\n" +
-                    "Version: $version\n" +
-                    "RSSI: ${scanResult.rssi}\n"
+            return """
+                Address: ${scanResult.device.address}
+                Product: $productId
+                Version: $version
+                RSSI: ${scanResult.rssi}
+            """.trimIndent()
         }
 
         override fun getItemCount(): Int {
@@ -338,7 +339,8 @@ class BleOTAScanActivity : AppCompatActivity() {
         }
 
         private fun onLeScanned(result: ScanResult) {
-            if (result.device.name?.contains(DEVICE_NAME_CONTENT) != true) {
+            val deviceName = result.device.name ?: return
+            if (DEVICE_NAME_CONTENT.isNotEmpty() && deviceName.contains(DEVICE_NAME_CONTENT) != true) {
                 return
             }
 

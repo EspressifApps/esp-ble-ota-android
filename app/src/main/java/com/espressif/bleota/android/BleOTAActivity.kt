@@ -134,7 +134,7 @@ class BleOTAActivity : AppCompatActivity() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             super.onConnectionStateChange(gatt, status, newState)
             when {
-                status.isGattFailed() -> {
+                isGattFailed(status) -> {
                     updateStatus("Status error: $status", false)
                 }
                 newState == BluetoothGatt.STATE_DISCONNECTED -> {
@@ -148,7 +148,7 @@ class BleOTAActivity : AppCompatActivity() {
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             super.onMtuChanged(gatt, mtu, status)
-            val result = if (status.isGattSuccess()) {
+            val result = if (isGattSuccess(status)) {
                 "success"
             } else {
                 "failed, status=$status"
@@ -158,7 +158,7 @@ class BleOTAActivity : AppCompatActivity() {
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             super.onServicesDiscovered(gatt, status)
-            if (status.isGattFailed()) {
+            if (isGattFailed(status)) {
                 updateStatus("Discover services failed, status=$status", false)
                 return
             }
@@ -192,7 +192,7 @@ class BleOTAActivity : AppCompatActivity() {
             status: Int
         ) {
             super.onDescriptorWrite(gatt, descriptor, status)
-            if (status.isGattFailed()) {
+            if (isGattFailed(status)) {
                 updateStatus(
                     "Set notification enabled failed, status=$status, char=${descriptor.characteristic.uuid}",
                     false
@@ -207,7 +207,7 @@ class BleOTAActivity : AppCompatActivity() {
             status: Int
         ) {
             super.onCharacteristicWrite(gatt, characteristic, status)
-            if (status.isGattFailed()) {
+            if (isGattFailed(status)) {
                 updateStatus("CharacteristicWrite failed, status=$status", false)
             }
         }
