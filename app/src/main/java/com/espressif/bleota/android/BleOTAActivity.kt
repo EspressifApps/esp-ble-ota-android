@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.le.ScanResult
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -41,8 +42,13 @@ class BleOTAActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(mBinding.root)
 
-        mScanResult = intent.getParcelableExtra(BleOTAConstants.KEY_SCAN_RESULT)!!
-        mBinUri = intent.getParcelableExtra(BleOTAConstants.KEY_BIN_URI)!!
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            mScanResult = intent.getParcelableExtra(BleOTAConstants.KEY_SCAN_RESULT, ScanResult::class.java)!!
+            mBinUri = intent.getParcelableExtra(BleOTAConstants.KEY_BIN_URI, Uri::class.java)!!
+        } else {
+            mScanResult = intent.getParcelableExtra(BleOTAConstants.KEY_SCAN_RESULT)!!
+            mBinUri = intent.getParcelableExtra(BleOTAConstants.KEY_BIN_URI)!!
+        }
 
         mBinding.recyclerView.adapter = StatusAdapter()
 
@@ -87,17 +93,20 @@ class BleOTAActivity : AppCompatActivity() {
         mOtaClient?.ota()
     }
 
-    private fun updateStatus(message: String, connected: Boolean) {
+    private fun updateStatus(message: String, connected: Boolean, showProgress: Boolean = connected) {
         runOnUiThread {
             mStatusList.add(message)
             mBinding.recyclerView.scrollToPosition(mStatusList.lastIndex)
             if (connected) {
-                mBinding.progressBar.visible()
                 mBinding.otaBtn.isEnabled = true
             } else {
                 close()
-                mBinding.progressBar.gone()
                 mBinding.otaBtn.isEnabled = false
+            }
+            if (showProgress) {
+                mBinding.progressBar.visible()
+            } else {
+                mBinding.progressBar.gone()
             }
         }
     }
@@ -128,7 +137,7 @@ class BleOTAActivity : AppCompatActivity() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             super.onConnectionStateChange(gatt, status, newState)
             when {
-                status.isGattFailed() -> {
+                isGattFailed(status) -> {
                     updateStatus("Status error: $status", false)
                 }
                 newState == BluetoothGatt.STATE_DISCONNECTED -> {
@@ -142,7 +151,7 @@ class BleOTAActivity : AppCompatActivity() {
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             super.onMtuChanged(gatt, mtu, status)
-            val result = if (status.isGattSuccess()) {
+            val result = if (isGattSuccess(status)) {
                 "success"
             } else {
                 "failed, status=$status"
@@ -152,7 +161,7 @@ class BleOTAActivity : AppCompatActivity() {
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             super.onServicesDiscovered(gatt, status)
-            if (status.isGattFailed()) {
+            if (isGattFailed(status)) {
                 updateStatus("Discover services failed, status=$status", false)
                 return
             }
@@ -177,7 +186,7 @@ class BleOTAActivity : AppCompatActivity() {
                 return
             }
 
-            updateStatus("Discover service and char completed", true)
+            updateStatus("Discover service and char completed", true, false)
         }
 
         override fun onDescriptorWrite(
@@ -186,7 +195,7 @@ class BleOTAActivity : AppCompatActivity() {
             status: Int
         ) {
             super.onDescriptorWrite(gatt, descriptor, status)
-            if (status.isGattFailed()) {
+            if (isGattFailed(status)) {
                 updateStatus(
                     "Set notification enabled failed, status=$status, char=${descriptor.characteristic.uuid}",
                     false
@@ -201,7 +210,7 @@ class BleOTAActivity : AppCompatActivity() {
             status: Int
         ) {
             super.onCharacteristicWrite(gatt, characteristic, status)
-            if (status.isGattFailed()) {
+            if (isGattFailed(status)) {
                 updateStatus("CharacteristicWrite failed, status=$status", false)
             }
         }

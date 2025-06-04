@@ -1,18 +1,22 @@
 package com.espressif.bleota.android
 
 import android.annotation.SuppressLint
-import android.bluetooth.*
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothGattService
 import android.content.Context
-import android.net.Uri
-import android.os.Build
 import android.util.Log
 import com.espressif.bleota.android.message.BleOTAMessage
 import com.espressif.bleota.android.message.EndCommandAckMessage
 import com.espressif.bleota.android.message.StartCommandAckMessage
-import java.io.*
-import java.util.*
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.Closeable
+import java.util.LinkedList
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.collections.ArrayList
 import kotlin.concurrent.thread
 
 @SuppressLint("MissingPermission")
@@ -37,7 +41,7 @@ class BleOTAClient(
         private const val BIN_ACK_SECTOR_INDEX_ERROR = 0x0002
         private const val BIN_ACK_PAYLOAD_LENGTH_ERROR = 0x0003
 
-        private const val MTU_SIZE = 517
+        private const val MTU_SIZE = 500
         private const val MTU_STATUS_FAILED = 20000
         private const val EXPECT_PACKET_SIZE = 463
 
@@ -72,11 +76,7 @@ class BleOTAClient(
 
         this.callback = callback
         callback.client = this
-        gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
-        } else {
-            device.connectGatt(context, false, callback)
-        }
+        gatt = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
     }
 
     fun stop() {
@@ -349,12 +349,12 @@ class BleOTAClient(
     open class GattCallback : BluetoothGattCallback() {
         var client: BleOTAClient? = null
 
-        protected fun Int.isGattSuccess(): Boolean {
-            return this == BluetoothGatt.GATT_SUCCESS
+        protected fun isGattSuccess(status: Int): Boolean {
+            return status == BluetoothGatt.GATT_SUCCESS
         }
 
-        protected fun Int.isGattFailed(): Boolean {
-            return this != BluetoothGatt.GATT_SUCCESS
+        protected fun isGattFailed(status: Int): Boolean {
+            return status != BluetoothGatt.GATT_SUCCESS
         }
 
         open fun onError(code: Int) {
@@ -375,12 +375,12 @@ class BleOTAClient(
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            client!!.packetSize = if (status.isGattSuccess()) EXPECT_PACKET_SIZE else 20
+            client!!.packetSize = if (isGattSuccess(status)) EXPECT_PACKET_SIZE else 20
             gatt.discoverServices()
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            if (status.isGattFailed()) {
+            if (isGattFailed(status)) {
                 return
             }
 
@@ -412,7 +412,7 @@ class BleOTAClient(
             descriptor: BluetoothGattDescriptor,
             status: Int
         ) {
-            if (status.isGattFailed()) {
+            if (isGattFailed(status)) {
                 return
             }
 
@@ -435,7 +435,7 @@ class BleOTAClient(
             if (characteristic == client?.recvFwChar) {
                 client?.postNextPacket()
             }
-            if (status.isGattFailed()) {
+            if (isGattFailed(status)) {
                 Log.w(TAG, "onCharacteristicWrite: status=$status")
                 return
             }

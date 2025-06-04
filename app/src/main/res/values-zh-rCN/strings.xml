@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">EspBleOTA</string>
+    <string name="app_version">版本: %s(%d)</string>
+    <string name="app_about">关于</string>
+
+    <string name="bluetooth_disabled">蓝牙不可用</string>
+    <string name="location_disabled">位置信息(GPS)不可用</string>
+
+    <string name="ble_ota">BLE OTA</string>
+    <string name="ble_ota_scan">BLE OTA 扫描</string>
+    <string name="ble_ota_scan_failed">扫描失败: %d</string>
+    <string name="ble_ota_select_fold">选择文件夹</string>
+    <string name="ble_ota_select_bin">选择文件</string>
+    <string name="ble_ota_no_bin_found">没有找到 bin 文件</string>
+    <string name="ble_ota_start_ota">开始 OTA</string>
+    <string name="ble_ota_connect">连接</string>
+</resources>
