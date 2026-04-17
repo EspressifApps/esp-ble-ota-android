@@ -210,7 +210,7 @@ class BleOTAActivity : AppCompatActivity() {
             status: Int
         ) {
             super.onCharacteristicWrite(gatt, characteristic, status)
-            if (isGattFailed(status)) {
+            if (isGattFailed(status) && characteristic != mOtaClient?.recvFwChar) {
                 updateStatus("CharacteristicWrite failed, status=$status", false)
             }
         }
@@ -219,22 +219,20 @@ class BleOTAActivity : AppCompatActivity() {
             if (message is StartCommandAckMessage) {
                 if (message.status == CommandAckMessage.STATUS_ACCEPT) {
                     updateStatus("Start OTA ...", true)
-                } else {
-                    if (message.status == CommandAckMessage.STATUS_REFUSE) {
-                        updateStatus("Device refuse OTA start request", false)
-                    }
                 }
             } else if (message is EndCommandAckMessage) {
                 if (message.status == CommandAckMessage.STATUS_ACCEPT) {
                     updateStatus("OTA Complete!!", false)
-                } else if (message.status == CommandAckMessage.STATUS_REFUSE) {
-                    updateStatus("Device refuse OTA end request", false)
                 }
             }
         }
 
+        override fun onSectorIndexResync(fromSector: Int) {
+            updateStatus("Sector index resync: resend from sector $fromSector", true, false)
+        }
+
         override fun onError(code: Int) {
-            updateStatus("Error: $code", false)
+            updateStatus(BleOTAErrors.messageFor(code), false)
         }
     }
 }

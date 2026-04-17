@@ -8,6 +8,8 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.espressif.bleota.android.message.BleOTAMessage
 import com.espressif.bleota.android.message.EndCommandAckMessage
@@ -45,13 +47,16 @@ class BleOTAClient(
         private const val MTU_STATUS_FAILED = 20000
         private const val EXPECT_PACKET_SIZE = 463
 
+        private const val SECTOR_ACK_TIMEOUT_MS = 30_000L
+
+        /** Max consecutive INDEX_ERR ACKs handled by resync before aborting OTA and disconnecting. */
+        private const val MAX_CONSECUTIVE_INDEX_ERR_RESYNC = 10
+
         private val SERVICE_UUID = bleUUID("8018")
         private val CHAR_RECV_FW_UUID = bleUUID("8020")
         private val CHAR_PROGRESS_UUID = bleUUID("8021")
         private val CHAR_COMMAND_UUID = bleUUID("8022")
         private val CHAR_CUSTOMER_UUID = bleUUID("8023")
-
-        private const val REQUIRE_CHECKSUM = false
     }
 
     var packetSize = 20
@@ -68,7 +73,20 @@ class BleOTAClient(
     private var callback: GattCallback? = null
     private val packets = LinkedList<ByteArray>()
     private val sectorAckIndex = AtomicInteger(0)
+    /** Counts consecutive sector INDEX_ERR ACKs without an intervening success ACK. */
+    private val consecutiveIndexErrResyncCount = AtomicInteger(0)
     private val sectorAckMark = ByteArray(0)
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var binTransferActive = false
+
+    private val sectorAckTimeoutRunnable = Runnable {
+        Log.w(TAG, "sector ACK timeout")
+        if (binTransferActive) {
+            failOtaTransfer()
+            callback?.onError(BleOTAErrors.SECTOR_ACK_TIMEOUT)
+        }
+    }
 
     fun connect(callback: GattCallback) {
         Log.i(TAG, "start OTA")
@@ -80,11 +98,15 @@ class BleOTAClient(
     }
 
     fun stop() {
+        cancelOtaTimeouts()
+        binTransferActive = false
+        nextNotifyChar = null
         gatt?.close()
         gatt = null
         callback = null
 
         packets.clear()
+        consecutiveIndexErrResyncCount.set(0)
     }
 
     override fun close() {
@@ -95,10 +117,43 @@ class BleOTAClient(
         notifyNextDescWrite()
     }
 
-    private fun initPackets() {
-        sectorAckIndex.set(0)
-        packets.clear()
+    private fun cancelOtaTimeouts() {
+        mainHandler.removeCallbacks(sectorAckTimeoutRunnable)
+    }
 
+    private fun scheduleSectorAckTimeout() {
+        mainHandler.removeCallbacks(sectorAckTimeoutRunnable)
+        mainHandler.postDelayed(sectorAckTimeoutRunnable, SECTOR_ACK_TIMEOUT_MS)
+    }
+
+    private fun failOtaTransfer() {
+        binTransferActive = false
+        packets.clear()
+        consecutiveIndexErrResyncCount.set(0)
+    }
+
+    internal fun onRecvFwWriteFailed(gattStatus: Int) {
+        cancelOtaTimeouts()
+        failOtaTransfer()
+        Log.w(TAG, "recv FW write failed: gattStatus=$gattStatus")
+        callback?.onError(BleOTAErrors.CHARACTERISTIC_WRITE_FAILED)
+    }
+
+    internal fun onDisconnectedDuringTransfer() {
+        cancelOtaTimeouts()
+        val wasActive = binTransferActive
+        failOtaTransfer()
+        sectorAckIndex.set(0)
+        if (wasActive) {
+            callback?.onError(BleOTAErrors.DISCONNECTED_DURING_OTA)
+        }
+    }
+
+    /**
+     * Rebuilds the FW write queue starting at [firstSector] (0-based), and sets
+     * [sectorAckIndex] to the same value so the next sector ACK matches device expectation.
+     */
+    private fun rebuildPacketsFromSector(firstSector: Int) {
         val sectors = ArrayList<ByteArray>()
         ByteArrayInputStream(bin).use {
             val buf = ByteArray(4096)
@@ -107,16 +162,24 @@ class BleOTAClient(
                 if (read == -1) {
                     break
                 }
-                val sector = buf.copyOf(read)
-                sectors.add(sector)
+                sectors.add(buf.copyOf(read))
             }
         }
-        if (DEBUG) {
-            Log.d(TAG, "initPackets: sectors size = ${sectors.size}")
+        if (sectors.isEmpty()) {
+            sectorAckIndex.set(0)
+            packets.clear()
+            return
         }
+
+        val from = firstSector.coerceIn(0, sectors.lastIndex)
+        sectorAckIndex.set(from)
+        packets.clear()
 
         val block = ByteArray(packetSize - 3)
         for (element in sectors.withIndex()) {
+            if (element.index < from) {
+                continue
+            }
             val sector = element.value
             val index = element.index
             val stream = ByteArrayInputStream(sector)
@@ -153,8 +216,13 @@ class BleOTAClient(
             packets.add(sectorAckMark)
         }
         if (DEBUG) {
-            Log.d(TAG, "initPackets: packets size = ${packets.size}")
+            Log.d(TAG, "rebuildPacketsFromSector: from=$from sectors=${sectors.size} queue=${packets.size}")
         }
+    }
+
+    private fun initPackets() {
+        consecutiveIndexErrResyncCount.set(0)
+        rebuildPacketsFromSector(0)
     }
 
     private fun notifyNextDescWrite(): BluetoothGattCharacteristic? {
@@ -220,6 +288,9 @@ class BleOTAClient(
             COMMAND_ACK_ACCEPT -> {
                 postBinData()
             }
+            COMMAND_ACK_REFUSE -> {
+                callback?.onError(BleOTAErrors.START_REFUSED)
+            }
         }
 
         val message = StartCommandAckMessage(status)
@@ -236,8 +307,12 @@ class BleOTAClient(
 
     private fun receiveCommandEndAck(status: Int) {
         Log.i(TAG, "receiveCommandEndAck: status=$status")
+        binTransferActive = false
         when (status) {
             COMMAND_ACK_ACCEPT -> {
+            }
+            COMMAND_ACK_REFUSE -> {
+                callback?.onError(BleOTAErrors.END_REFUSED)
             }
         }
 
@@ -247,6 +322,7 @@ class BleOTAClient(
 
     private fun postBinData() {
         thread {
+            binTransferActive = true
             initPackets()
 
             postNextPacket()
@@ -261,87 +337,137 @@ class BleOTAClient(
             if (DEBUG) {
                 Log.d(TAG, "postNextPacket: wait for sector ACK")
             }
+            scheduleSectorAckTimeout()
         } else {
             recvFwChar?.value = packet
             gatt?.writeCharacteristic(recvFwChar)
         }
     }
 
-    private fun parseSectorAck(data: ByteArray) {
+    private fun parseSectorAck(data: ByteArray?) {
+        cancelOtaTimeouts()
         try {
-            val expectIndex = sectorAckIndex.getAndIncrement()
-            val ackIndex = (data[0].toInt() and 0xff) or
-                    (data[1].toInt() shl 8 and 0xff00)
-            if (ackIndex != expectIndex) {
-                Log.w(TAG, "takeSectorAck: Receive error index $ackIndex, expect $expectIndex")
-                callback?.onError(1)
+            if (data == null || data.size < 20) {
+                Log.w(TAG, "parseSectorAck: short payload, size=${data?.size}")
+                callback?.onError(BleOTAErrors.SECTOR_ACK_TOO_SHORT)
+                failOtaTransfer()
                 return
             }
-            val ackStatus = (data[2].toInt() and 0xff) or
-                    (data[3].toInt() shl 8 and 0xff00)
-            Log.d(TAG, "takeSectorAck: index=$ackIndex, status=$ackStatus")
+            val crcRecv = u16le(data, 18)
+            val crcCalc = EspCRC16.crc(data, 0, 18)
+            if (crcRecv != crcCalc) {
+                Log.w(TAG, "parseSectorAck: CRC mismatch recv=0x${crcRecv.toString(16)} calc=0x${crcCalc.toString(16)}")
+                callback?.onError(BleOTAErrors.SECTOR_ACK_CRC_INVALID)
+                failOtaTransfer()
+                return
+            }
+
+            val expectIndex = sectorAckIndex.get()
+            val ackIndex = u16le(data, 0)
+            if (ackIndex != expectIndex) {
+                Log.w(TAG, "parseSectorAck: index $ackIndex, expect $expectIndex")
+                callback?.onError(BleOTAErrors.SECTOR_ACK_INDEX_MISMATCH)
+                failOtaTransfer()
+                return
+            }
+
+            val ackStatus = u16le(data, 2)
+            val nextExpected = u16le(data, 4)
+            Log.d(TAG, "parseSectorAck: index=$ackIndex, status=$ackStatus, nextExpected=$nextExpected")
+
             when (ackStatus) {
                 BIN_ACK_SUCCESS -> {
+                    consecutiveIndexErrResyncCount.set(0)
+                    val expectedNext = (ackIndex + 1) and 0xffff
+                    if (nextExpected != expectedNext) {
+                        Log.w(TAG, "parseSectorAck: nextExpected mismatch got=$nextExpected want=$expectedNext")
+                        callback?.onError(BleOTAErrors.SECTOR_ACK_NEXT_MISMATCH)
+                        failOtaTransfer()
+                        return
+                    }
+                    sectorAckIndex.incrementAndGet()
                     postNextPacket()
                 }
                 BIN_ACK_CRC_ERROR -> {
-                    callback?.onError(2)
-                    return
+                    callback?.onError(BleOTAErrors.BIN_CRC_REJECT)
+                    failOtaTransfer()
                 }
                 BIN_ACK_SECTOR_INDEX_ERROR -> {
-                    val devExpectIndex = (data[4].toInt() and 0xff) or
-                            (data[5].toInt() shl 8 and 0xff00)
-                    if (DEBUG) {
-                        Log.w(TAG, "parseSectorAck: device expect index = $devExpectIndex")
+                    val devExpectIndex = u16le(data, 4)
+                    val attempt = consecutiveIndexErrResyncCount.incrementAndGet()
+                    if (attempt >= MAX_CONSECUTIVE_INDEX_ERR_RESYNC) {
+                        Log.e(
+                            TAG,
+                            "parseSectorAck: INDEX_ERR resync exhausted ($attempt consecutive), abort OTA"
+                        )
+                        failOtaTransfer()
+                        callback?.onError(BleOTAErrors.SECTOR_INDEX_RESYNC_EXHAUSTED)
+                        return
                     }
-                    callback?.onError(3)
-                    return
+                    Log.w(
+                        TAG,
+                        "parseSectorAck: INDEX_ERR device expect=$devExpectIndex, resync ($attempt/$MAX_CONSECUTIVE_INDEX_ERR_RESYNC)"
+                    )
+                    rebuildPacketsFromSector(devExpectIndex)
+                    callback?.onSectorIndexResync(sectorAckIndex.get())
+                    postNextPacket()
                 }
                 BIN_ACK_PAYLOAD_LENGTH_ERROR -> {
-                    callback?.onError(4)
-                    return
+                    callback?.onError(BleOTAErrors.DEVICE_PAYLOAD_LENGTH_ERROR)
+                    failOtaTransfer()
                 }
                 else -> {
-                    callback?.onError(5)
-                    return
+                    callback?.onError(BleOTAErrors.UNKNOWN_BIN_ACK_STATUS)
+                    failOtaTransfer()
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "parseSectorAck error")
-            if (DEBUG) {
-                Log.w(TAG, "parseSectorAck: ", e)
-            }
-            callback?.onError(-1)
+            Log.w(TAG, "parseSectorAck error", e)
+            failOtaTransfer()
+            callback?.onError(BleOTAErrors.SECTOR_ACK_PARSE)
         }
     }
 
     private fun parseCommandPacket() {
-        val packet = commandChar!!.value
+        val packet = commandChar?.value
+        if (packet == null) {
+            Log.w(TAG, "parseCommandPacket: null value")
+            return
+        }
         if (DEBUG) {
             Log.i(TAG, "parseCommandPacket: ${packet.contentToString()}")
         }
-        if (REQUIRE_CHECKSUM) {
-            val crc = (packet[18].toInt() and 0xff) or (packet[19].toInt() shl 8 and 0xff00)
-            val checksum = EspCRC16.crc(packet, 0, 18)
-            if (crc != checksum) {
-                Log.w(TAG, "parseCommandPacket: Checksum error: $crc, expect $checksum")
-                return
-            }
+        if (packet.size < 20) {
+            Log.w(TAG, "parseCommandPacket: size=${packet.size}")
+            callback?.onError(BleOTAErrors.COMMAND_PACKET_SIZE)
+            return
+        }
+        val crc = u16le(packet, 18)
+        val checksum = EspCRC16.crc(packet, 0, 18)
+        if (crc != checksum) {
+            Log.w(TAG, "parseCommandPacket: Checksum error: $crc, expect $checksum")
+            callback?.onError(BleOTAErrors.COMMAND_CHECKSUM)
+            return
         }
 
-        val id = (packet[0].toInt() and 0xff) or (packet[1].toInt() shl 8 and 0xff00)
-        if (id == COMMAND_ID_ACK) {
-            val ackId = (packet[2].toInt() and 0xff) or
-                    (packet[3].toInt() shl 8 and 0xff00)
-            val ackStatus = (packet[4].toInt() and 0xff) or
-                    (packet[5].toInt() shl 8 and 0xff00)
-            when (ackId) {
-                COMMAND_ID_START -> {
-                    receiveCommandStartAck(ackStatus)
-                }
-                COMMAND_ID_END -> {
-                    receiveCommandEndAck(ackStatus)
-                }
+        val id = u16le(packet, 0)
+        if (id != COMMAND_ID_ACK) {
+            Log.w(TAG, "parseCommandPacket: unexpected id=0x${id.toString(16)}")
+            callback?.onError(BleOTAErrors.COMMAND_NOTIFY_UNEXPECTED_ID)
+            return
+        }
+        val ackId = u16le(packet, 2)
+        val ackStatus = u16le(packet, 4)
+        when (ackId) {
+            COMMAND_ID_START -> {
+                receiveCommandStartAck(ackStatus)
+            }
+            COMMAND_ID_END -> {
+                receiveCommandEndAck(ackStatus)
+            }
+            else -> {
+                Log.w(TAG, "parseCommandPacket: unknown ackId=0x${ackId.toString(16)}")
+                callback?.onError(BleOTAErrors.UNKNOWN_COMMAND_ACK_ID)
             }
         }
     }
@@ -363,8 +489,15 @@ class BleOTAClient(
         open fun onOTA(message: BleOTAMessage) {
         }
 
+        /** Device asked to resend from this sector; default no-op (Activity may show status). */
+        open fun onSectorIndexResync(fromSector: Int) {
+        }
+
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
+                BluetoothGatt.STATE_DISCONNECTED -> {
+                    client?.onDisconnectedDuringTransfer()
+                }
                 BluetoothGatt.STATE_CONNECTED -> {
                     gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                     if (!gatt.requestMtu(MTU_SIZE)) {
@@ -391,7 +524,7 @@ class BleOTAClient(
             val progressChar = service?.getCharacteristic(CHAR_PROGRESS_UUID)?.also {
                 gatt.setCharacteristicNotification(it, true)
             }
-            val commandChar = service.getCharacteristic(CHAR_COMMAND_UUID)?.also {
+            val commandChar = service?.getCharacteristic(CHAR_COMMAND_UUID)?.also {
                 gatt.setCharacteristicNotification(it, true)
             }
             val customerChar = service?.getCharacteristic(CHAR_CUSTOMER_UUID)?.also {
@@ -418,7 +551,6 @@ class BleOTAClient(
 
             val next = client?.notifyNextDescWrite()
             if (next == null) {
-                // Set notification enabled completed
                 Log.d(TAG, "onDescriptorWrite: Set notification enabled completed")
                 client?.postCommandStart()
             }
@@ -433,11 +565,14 @@ class BleOTAClient(
                 Log.d(TAG, "onCharacteristicWrite: status=$status, char=${characteristic.uuid}")
             }
             if (characteristic == client?.recvFwChar) {
-                client?.postNextPacket()
+                if (isGattSuccess(status)) {
+                    client?.postNextPacket()
+                } else {
+                    client?.onRecvFwWriteFailed(status)
+                }
             }
-            if (isGattFailed(status)) {
-                Log.w(TAG, "onCharacteristicWrite: status=$status")
-                return
+            if (isGattFailed(status) && characteristic != client?.recvFwChar) {
+                Log.w(TAG, "onCharacteristicWrite: status=$status, char=${characteristic.uuid}")
             }
         }
 
@@ -462,4 +597,8 @@ class BleOTAClient(
             }
         }
     }
+}
+
+private fun u16le(data: ByteArray, offset: Int): Int {
+    return (data[offset].toInt() and 0xff) or (data[offset + 1].toInt() shl 8 and 0xff00)
 }
